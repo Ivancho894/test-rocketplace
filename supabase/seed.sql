@@ -1,19 +1,12 @@
 -- Datos de prueba: 3 tiendas, 2 usuarios por tienda, pedidos en todas (A: 150, B: 60, C: 45).
 -- Usuarios de prueba, contraseña común: Rocketplace-test-1!
--- Idempotente: borra y recrea los datos de prueba.
-
-delete from public.orders where store_id in (
-  'a0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000003');
-delete from public.store_members where store_id in (
-  'a0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000003');
-delete from public.stores where id in (
-  'a0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000003');
-delete from auth.users where email like '%@test.rocketplace.dev';
+-- Sin deletes; re-ejecutable: los inserts usan on conflict do nothing y los pedidos solo se crean si la tienda no tiene.
 
 insert into public.stores (id, name) values
   ('a0000000-0000-4000-8000-000000000001', 'Tienda A'),
   ('b0000000-0000-4000-8000-000000000002', 'Tienda B'),
-  ('c0000000-0000-4000-8000-000000000003', 'Tienda C');
+  ('c0000000-0000-4000-8000-000000000003', 'Tienda C')
+on conflict (id) do nothing;
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -30,13 +23,15 @@ from (values
   ('b2000000-0000-4000-8000-000000000004'::uuid, 'b2@test.rocketplace.dev'),
   ('c1000000-0000-4000-8000-000000000005'::uuid, 'c1@test.rocketplace.dev'),
   ('c2000000-0000-4000-8000-000000000006'::uuid, 'c2@test.rocketplace.dev')
-) as u(id, email);
+) as u(id, email)
+on conflict (id) do nothing;
 
 insert into auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
 select gen_random_uuid(), id, id::text,
   jsonb_build_object('sub', id::text, 'email', email, 'email_verified', true),
   'email', now(), now(), now()
-from auth.users where email like '%@test.rocketplace.dev';
+from auth.users where email like '%@test.rocketplace.dev'
+on conflict (provider_id, provider) do nothing;
 
 insert into public.store_members (user_id, store_id) values
   ('a1000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001'),
@@ -44,7 +39,8 @@ insert into public.store_members (user_id, store_id) values
   ('b1000000-0000-4000-8000-000000000003', 'b0000000-0000-4000-8000-000000000002'),
   ('b2000000-0000-4000-8000-000000000004', 'b0000000-0000-4000-8000-000000000002'),
   ('c1000000-0000-4000-8000-000000000005', 'c0000000-0000-4000-8000-000000000003'),
-  ('c2000000-0000-4000-8000-000000000006', 'c0000000-0000-4000-8000-000000000003');
+  ('c2000000-0000-4000-8000-000000000006', 'c0000000-0000-4000-8000-000000000003')
+on conflict do nothing;
 
 -- Nombres con tildes, comas, comillas, saltos de línea y prefijos de fórmula (= + - @).
 -- created_at se repite en grupos de 4 pedidos para ejercitar el desempate por id.
@@ -71,4 +67,5 @@ from (values
   ('b0000000-0000-4000-8000-000000000002'::uuid, 60),
   ('c0000000-0000-4000-8000-000000000003'::uuid, 45)
 ) as s(store_id, n)
-cross join lateral generate_series(1, s.n) as g;
+cross join lateral generate_series(1, s.n) as g
+where not exists (select 1 from public.orders o where o.store_id = s.store_id);
